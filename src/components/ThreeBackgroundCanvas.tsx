@@ -41,25 +41,36 @@ export const ThreeBackgroundCanvas: React.FC = () => {
     const particleCount = 75;
     const geometry = new THREE.BufferGeometry();
     const positions = new Float32Array(particleCount * 3);
-    const velocities: { x: number; y: number; z: number }[] = [];
+    const colors = new Float32Array(particleCount * 3);
+    const velocities: { x: number; y: number; z: number; origVx: number; origVy: number; glow: number }[] = [];
 
     for (let i = 0; i < particleCount; i++) {
       positions[i * 3] = (Math.random() - 0.5) * 400;
       positions[i * 3 + 1] = (Math.random() - 0.5) * 400;
       positions[i * 3 + 2] = (Math.random() - 0.5) * 200;
 
+      colors[i * 3] = 0.65;
+      colors[i * 3 + 1] = 0.40;
+      colors[i * 3 + 2] = 0.98;
+
+      const vx = (Math.random() - 0.5) * 0.18;
+      const vy = (Math.random() - 0.5) * 0.18;
       velocities.push({
-        x: (Math.random() - 0.5) * 0.18,
-        y: (Math.random() - 0.5) * 0.18,
+        x: vx,
+        y: vy,
         z: (Math.random() - 0.5) * 0.08,
+        origVx: vx,
+        origVy: vy,
+        glow: 1.0,
       });
     }
 
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
     // Particle Material
     const pMaterial = new THREE.PointsMaterial({
-      color: themeRef.current ? 0x7c3aed : 0xc084fc,
+      vertexColors: true,
       size: 3.5,
       transparent: true,
       opacity: themeRef.current ? 0.40 : 0.45,
@@ -87,15 +98,30 @@ export const ThreeBackgroundCanvas: React.FC = () => {
     const lineMesh = new THREE.LineSegments(lineGeometry, lineMaterial);
     scene.add(lineMesh);
 
-    // Mouse movement parallax
+    // Mouse movement parallax & interactive repulsion
     let mouseX = 0;
     let mouseY = 0;
     let targetX = 0;
     let targetY = 0;
+    let mouseWorldX = 0;
+    let mouseWorldY = 0;
+    let hasMoved = false;
 
     const handleMouseMove = (e: MouseEvent) => {
       targetX = (e.clientX - width / 2) * 0.04;
       targetY = (e.clientY - height / 2) * 0.04;
+
+      // Project mouse coordinates to approximate 3D world plane at z=0
+      const normX = (e.clientX / width) * 2 - 1;
+      const normY = -(e.clientY / height) * 2 + 1;
+      
+      const vFOV = (camera.fov * Math.PI) / 180;
+      const viewHeight = 2 * Math.tan(vFOV / 2) * camera.position.z;
+      const viewWidth = viewHeight * camera.aspect;
+
+      mouseWorldX = normX * (viewWidth / 2);
+      mouseWorldY = normY * (viewHeight / 2);
+      hasMoved = true;
     };
 
     window.addEventListener('mousemove', handleMouseMove);
@@ -147,19 +173,68 @@ export const ThreeBackgroundCanvas: React.FC = () => {
 
       const posAttr = geometry.getAttribute('position') as THREE.BufferAttribute;
       const posArray = posAttr.array as Float32Array;
+      const colAttr = geometry.getAttribute('color') as THREE.BufferAttribute;
+      const colArray = colAttr.array as Float32Array;
 
-      // Update particle positions
+      // Update particle positions with interactive mouse repulsion & hover glow
       for (let i = 0; i < particleCount; i++) {
-        posArray[i * 3] += velocities[i].x;
-        posArray[i * 3 + 1] += velocities[i].y;
+        let vx = velocities[i].x;
+        let vy = velocities[i].y;
+
+        let targetGlow = 1.0;
+        if (hasMoved) {
+          const dx = posArray[i * 3] - mouseWorldX;
+          const dy = posArray[i * 3 + 1] - mouseWorldY;
+          const distSq = dx * dx + dy * dy;
+          const interactionRadius = 18000; // ~134 units radius
+          const glowRadius = 25000; // ~158 units radius for proximity glow
+
+          if (distSq < interactionRadius && distSq > 1) {
+            const dist = Math.sqrt(distSq);
+            const force = (1 - dist / Math.sqrt(interactionRadius)) * 0.4;
+            vx += (dx / dist) * force;
+            vy += (dy / dist) * force;
+          }
+
+          if (distSq < glowRadius) {
+            const dist = Math.sqrt(distSq);
+            targetGlow = 1.0 + 2.5 * (1.0 - dist / Math.sqrt(glowRadius));
+          }
+        }
+
+        // Smoothly interpolate particle glow
+        velocities[i].glow += (targetGlow - velocities[i].glow) * 0.12;
+
+        // Gently return velocity towards original velocity
+        vx += (velocities[i].origVx - vx) * 0.05;
+        vy += (velocities[i].origVy - vy) * 0.05;
+
+        velocities[i].x = vx;
+        velocities[i].y = vy;
+
+        posArray[i * 3] += vx;
+        posArray[i * 3 + 1] += vy;
         posArray[i * 3 + 2] += velocities[i].z;
 
         // Bounce back within bounds
-        if (posArray[i * 3] < -200 || posArray[i * 3] > 200) velocities[i].x = -velocities[i].x;
-        if (posArray[i * 3 + 1] < -200 || posArray[i * 3 + 1] > 200) velocities[i].y = -velocities[i].y;
+        if (posArray[i * 3] < -200 || posArray[i * 3] > 200) velocities[i].origVx = -velocities[i].origVx;
+        if (posArray[i * 3 + 1] < -200 || posArray[i * 3 + 1] > 200) velocities[i].origVy = -velocities[i].origVy;
         if (posArray[i * 3 + 2] < -100 || posArray[i * 3 + 2] > 100) velocities[i].z = -velocities[i].z;
+
+        // Update vertex color based on theme and proximity glow
+        const g = velocities[i].glow;
+        if (currentThemeClinical) {
+          colArray[i * 3] = Math.min(1.0, 0.49 * g);
+          colArray[i * 3 + 1] = Math.min(1.0, 0.23 * g);
+          colArray[i * 3 + 2] = Math.min(1.0, 0.93 * g);
+        } else {
+          colArray[i * 3] = Math.min(1.0, 0.75 * g);
+          colArray[i * 3 + 1] = Math.min(1.0, 0.52 * g);
+          colArray[i * 3 + 2] = Math.min(1.0, 0.99 * g);
+        }
       }
       posAttr.needsUpdate = true;
+      colAttr.needsUpdate = true;
 
       // Update lines between close particles
       let bondIdx = 0;
@@ -188,7 +263,6 @@ export const ThreeBackgroundCanvas: React.FC = () => {
 
             const alpha = 1.0 - Math.sqrt(distSq) / 70;
             if (currentThemeClinical) {
-              // Clinical clean purple/indigo
               lineColArray[bondIdx * 6] = 0.49 * alpha;
               lineColArray[bondIdx * 6 + 1] = 0.23 * alpha;
               lineColArray[bondIdx * 6 + 2] = 0.93 * alpha;
@@ -197,10 +271,9 @@ export const ThreeBackgroundCanvas: React.FC = () => {
               lineColArray[bondIdx * 6 + 4] = 0.23 * alpha;
               lineColArray[bondIdx * 6 + 5] = 0.93 * alpha;
             } else {
-              // Lavender / Violet gradient colors
-              lineColArray[bondIdx * 6] = 0.65 * alpha;     // R
-              lineColArray[bondIdx * 6 + 1] = 0.40 * alpha; // G
-              lineColArray[bondIdx * 6 + 2] = 0.98 * alpha; // B
+              lineColArray[bondIdx * 6] = 0.65 * alpha;
+              lineColArray[bondIdx * 6 + 1] = 0.40 * alpha;
+              lineColArray[bondIdx * 6 + 2] = 0.98 * alpha;
 
               lineColArray[bondIdx * 6 + 3] = 0.65 * alpha;
               lineColArray[bondIdx * 6 + 4] = 0.40 * alpha;
