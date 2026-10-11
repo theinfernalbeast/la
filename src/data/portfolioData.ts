@@ -1,3 +1,6 @@
+import commelinaResearchImage from '../assets/images/research_commelina_extract_1791679179876.jpg';
+import hepatitisPosterImage from '../assets/images/poster_hepatitis_antiviral_1791679192469.jpg';
+
 export interface ResearchProject {
   id: string;
   title: string;
@@ -152,7 +155,7 @@ export const PORTFOLIO_DATA = {
       ],
       scientificDetails:
         'Commelina erecta contains phytochemical flavonoids and polyphenols. The research quantifies inhibition of heat-induced protein denaturation and membrane stabilization of erythrocyte membranes to explore potential natural anti-inflammatory therapeutic leads.',
-      image: '/src/assets/images/research_commelina_extract_1791679179876.jpg',
+      image: commelinaResearchImage,
     },
     {
       id: 'hepatitis',
@@ -169,7 +172,7 @@ export const PORTFOLIO_DATA = {
       ],
       scientificDetails:
         'Entecavir demonstrates a superior genetic resistance barrier and long-term viral load suppression compared to Lamivudine, highlighting the imperative for updated therapeutic guidelines and accessible antiretroviral options in regional clinical practice.',
-      image: '/src/assets/images/poster_hepatitis_antiviral_1791679192469.jpg',
+      image: hepatitisPosterImage,
     },
   ] as ResearchProject[],
 
